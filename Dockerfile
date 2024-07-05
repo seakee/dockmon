@@ -24,6 +24,17 @@ RUN apk --no-cache add ca-certificates
 # Set the working directory for runtime
 WORKDIR /
 
+# Set the build-time argument for TZ
+ARG TZ=Asia/Shanghai
+
+# Set the environment variable for TZ
+ENV TZ=$TZ
+
+# Install tzdata for timezone support
+RUN apk add --no-cache tzdata && \
+    cp /usr/share/zoneinfo/$TZ /etc/localtime && \
+    echo $TZ > /etc/timezone
+
 # Copy the compiled binary file into the /bin directory of the runtime image
 COPY --from=builder /build/dockmon ./bin
 
