@@ -120,7 +120,7 @@ func (h *handler) periodicCleanUp(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			h.logger.Info(ctx, "定期清理开始")
+			h.logger.Info(ctx, "开始清理未活动的容器日志收集器")
 
 			h.activeContainers.mu.Lock()
 
@@ -141,9 +141,9 @@ func (h *handler) periodicCleanUp(ctx context.Context) {
 
 			h.activeContainers.mu.Unlock()
 
-			h.logger.Info(ctx, "定期清理结束")
+			h.logger.Info(ctx, "未活动的容器日志收集器清理结束")
 		case <-ctx.Done():
-			h.logger.Info(ctx, "停止定期清理")
+			h.logger.Info(ctx, "停止未活动的容器日志收集器清理")
 			return
 		}
 	}
