@@ -76,7 +76,7 @@ func newTestCollector() (*handler, error) {
 		unstructuredLogs: &unstructuredLogs{entries: make(map[string]*unstructuredLogBuffer)},
 		traceID:          traceID,
 		configs: &Config{
-			ContainerNames:           containerNameList,
+			MonitoredContainers:      &MonitoredContainers{Names: containerNameList},
 			TimeLayout:               timeLayout,
 			UnstructuredLogLineFlags: UnstructuredLogLineFlags,
 		},

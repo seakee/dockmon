@@ -36,9 +36,16 @@ type (
 
 	// Config 监视器配置
 	Config struct {
-		ContainerNames           []string
+		MonitoredContainers      *MonitoredContainers
 		TimeLayout               []string
 		UnstructuredLogLineFlags []string
+	}
+
+	MonitoredContainers struct {
+		Names    []string // 监视的容器名称
+		Ids      []string // 监视的容器ID
+		BlockIDs []string // 屏蔽的容器ID
+		mu       sync.RWMutex
 	}
 
 	// Handler 接口
@@ -94,7 +101,8 @@ func New(ctx context.Context, db *gorm.DB,
 
 // Start 启动日志收集
 func (h *handler) Start(ctx context.Context) {
-	for _, containerName := range h.configs.ContainerNames {
+	h.configs.MonitoredContainers.mu.Lock()
+	for _, containerName := range h.configs.MonitoredContainers.Names {
 		// 根据容器名称获取容器 ID
 		containerID, err := h.dockerManager.GetContainerInfo(ctx, containerName, "id")
 		if err != nil {
@@ -102,14 +110,75 @@ func (h *handler) Start(ctx context.Context) {
 			continue
 		}
 
+		h.configs.MonitoredContainers.Ids = append(h.configs.MonitoredContainers.Ids, containerID)
+
 		// 启动一个 goroutine 来收集日志
 		go h.collectLogs(ctx, containerID, containerName)
 	}
+	h.configs.MonitoredContainers.mu.Unlock()
 
 	// 监听 Docker 事件
-	go h.watchDockerEvents(ctx, h.configs.ContainerNames)
+	go h.watchDockerEvents(ctx)
 	// 启动定期清理
 	go h.periodicCleanUp(ctx)
+}
+
+// inSlice 判断是否在切片中
+func inSlice(value string, slice []string) bool {
+	for _, item := range slice {
+		if item == value {
+			return true
+		}
+	}
+
+	return false
+}
+
+// isMonitoredContainer 判断是否为需要监视的容器
+func (h *handler) isMonitoredContainer(ctx context.Context, containerIdentifier, identifierType string) bool {
+	if identifierType == "id" {
+		h.configs.MonitoredContainers.mu.RLock()
+		// 判断是否为需要屏蔽的容器
+		if inSlice(containerIdentifier, h.configs.MonitoredContainers.BlockIDs) {
+			h.configs.MonitoredContainers.mu.RUnlock()
+			return false
+		}
+
+		// 判断是否为需要监视的容器
+		if inSlice(containerIdentifier, h.configs.MonitoredContainers.Ids) {
+			h.configs.MonitoredContainers.mu.RUnlock()
+			return true
+		}
+
+		h.configs.MonitoredContainers.mu.RUnlock()
+
+		name, err := h.dockerManager.GetContainerInfo(ctx, containerIdentifier, "name")
+		if err != nil {
+			h.logger.Error(ctx, "获取容器名称失败", zap.String("containerID", containerIdentifier), zap.Error(err))
+			return false
+		}
+
+		h.configs.MonitoredContainers.mu.Lock()
+		defer h.configs.MonitoredContainers.mu.Unlock()
+
+		if inSlice(name, h.configs.MonitoredContainers.Names) {
+			h.configs.MonitoredContainers.Ids = append(h.configs.MonitoredContainers.Ids, containerIdentifier)
+			return true
+		}
+
+		h.configs.MonitoredContainers.BlockIDs = append(h.configs.MonitoredContainers.BlockIDs, containerIdentifier)
+		return false
+	}
+
+	if identifierType == "name" {
+		h.configs.MonitoredContainers.mu.RLock()
+		defer h.configs.MonitoredContainers.mu.RUnlock()
+		if inSlice(containerIdentifier, h.configs.MonitoredContainers.Names) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // 定期清理长时间未活动的 goroutine
@@ -150,7 +219,7 @@ func (h *handler) periodicCleanUp(ctx context.Context) {
 }
 
 // watchDockerEvents 监听 Docker 事件
-func (h *handler) watchDockerEvents(ctx context.Context, containerNameList []string) {
+func (h *handler) watchDockerEvents(ctx context.Context) {
 	h.logger.Info(ctx, "开始监听 Docker 事件")
 
 	// 设置过滤器以监听容器事件
@@ -161,6 +230,10 @@ func (h *handler) watchDockerEvents(ctx context.Context, containerNameList []str
 	for {
 		select {
 		case msg := <-msgs:
+			if !h.isMonitoredContainer(ctx, msg.Actor.ID, "id") {
+				continue
+			}
+
 			// 获取容器名称
 			containerName, err := h.dockerManager.GetContainerInfo(ctx, msg.Actor.ID, "name")
 			if err != nil {
@@ -172,9 +245,7 @@ func (h *handler) watchDockerEvents(ctx context.Context, containerNameList []str
 
 			switch msg.Action {
 			case "start":
-				if h.dockerManager.containerMatchesName(ctx, containerNameList, msg.Actor.ID) {
-					go h.collectLogs(ctx, msg.Actor.ID, containerName)
-				}
+				go h.collectLogs(ctx, msg.Actor.ID, containerName)
 			}
 		case err := <-errs:
 			h.logger.Error(ctx, "监听 Docker 事件失败", zap.Error(err))
@@ -190,14 +261,6 @@ func (h *handler) watchDockerEvents(ctx context.Context, containerNameList []str
 func (h *handler) collectLogs(ctx context.Context, containerID, containerName string) {
 	ctx = context.WithValue(ctx, logger.TraceIDKey, h.traceID.New())
 
-	h.unstructuredLogs.mu.Lock()
-	h.unstructuredLogs.entries[containerID] = &unstructuredLogBuffer{
-		containerID:   containerID,
-		containerName: containerName,
-		logs:          make([]string, 0),
-	}
-	h.unstructuredLogs.mu.Unlock()
-
 	// 检查是否已经在收集指定容器的日志
 	h.activeContainers.mu.RLock()
 	if h.activeContainers.entries[containerID] {
@@ -206,6 +269,14 @@ func (h *handler) collectLogs(ctx context.Context, containerID, containerName st
 		return
 	}
 	h.activeContainers.mu.RUnlock()
+
+	h.unstructuredLogs.mu.Lock()
+	h.unstructuredLogs.entries[containerID] = &unstructuredLogBuffer{
+		containerID:   containerID,
+		containerName: containerName,
+		logs:          make([]string, 0),
+	}
+	h.unstructuredLogs.mu.Unlock()
 
 	// 设置状态为正在收集日志
 	h.activeContainers.mu.Lock()

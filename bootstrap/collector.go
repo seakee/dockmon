@@ -23,7 +23,7 @@ func (a *App) startCollector(ctx context.Context) {
 		a.Redis["dockmon"],
 		&monitor.Config{
 			UnstructuredLogLineFlags: a.Config.Collector.UnstructuredLogLineFlags,
-			ContainerNames:           a.Config.Collector.ContainerName,
+			MonitoredContainers:      &monitor.MonitoredContainers{Names: a.Config.Collector.ContainerName},
 			TimeLayout:               a.Config.Collector.TimeLayout,
 		},
 		a.TraceID,

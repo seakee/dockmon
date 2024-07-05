@@ -89,19 +89,6 @@ func (m *DockerManager) GetContainerInfo(ctx context.Context, containerIdentifie
 	return "", fmt.Errorf("container %s not found", containerIdentifier)
 }
 
-// containerMatchesName 检查容器名称是否在列表中
-func (m *DockerManager) containerMatchesName(ctx context.Context, containerNameList []string, containerID string) bool {
-	// 遍历容器名称列表，检查是否匹配
-	for _, containerName := range containerNameList {
-		id, err := m.GetContainerInfo(ctx, containerName, "id")
-		if err == nil && id == containerID {
-			return true
-		}
-	}
-
-	return false
-}
-
 // getContainerState 获取容器状态
 func (m *DockerManager) getContainerState(ctx context.Context, containerID string) (string, error) {
 	// 获取容器的状态
