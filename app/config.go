@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	envKey  = "RUN_MODE"
+	envKey  = "RUN_ENV"
 	nameKey = "APP_NAME"
 )
 
