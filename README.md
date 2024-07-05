@@ -44,13 +44,20 @@ Dockmon 是一个用 Go 编写的 Docker容器监视器，可以从 Docker 容�
     ```sh
     make build
     ```
-
+   或者
+   ```sh
+   chmod +x ./scripts/dockmon.sh
+   ./scripts/dockmon.sh build
+   ```
 5. 运行程序
 
     ```sh
     make run
     ```
-
+   或者
+   ```sh
+   ./scripts/dockmon.sh run
+   ```
 ### Docker 运行
 
 #### 构建 Docker 镜像
@@ -60,14 +67,21 @@ Dockmon 是一个用 Go 编写的 Docker容器监视器，可以从 Docker 容�
     ```sh
     make docker-build
     ```
-
+   或者
+   ```sh
+   chmod +x ./scripts/dockmon.sh
+   ./scripts/dockmon.sh docker-build
+   ```
 #### 运行 Docker 容器
 1. 运行 Docker 容器
 
     ```sh
     make docker-run 
     ```
-
+   或者
+   ```sh
+   ./scripts/dockmon.sh docker-run
+   ```
    或者手动运行 Docker 容器并指定环境变量：
 
     ```sh
