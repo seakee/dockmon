@@ -31,7 +31,7 @@ Dockmon 是一个用 Go 编写的 Docker容器监视器，可以从 Docker 容�
 
 2. 修改配置文件
    ```sh
-   cp bin/configs/local.json.example bin/configs/local.json
+   cp bin/configs/local.json.default bin/configs/local.json
    ```
    修改 `bin/configs/local.json` 文件redis、mysql 等配置.`system.jwt_secret`参数不能为空，建议至少 32 位以上随机字符。
 
