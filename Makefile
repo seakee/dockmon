@@ -1,6 +1,9 @@
 # App name
 APP_NAME ?= dockmon
 
+# Timezone
+TZ ?= Asia/Shanghai
+
 # Docker image name
 IMAGE_NAME ?= $(APP_NAME):latest
 
@@ -9,6 +12,9 @@ CONFIG_DIR ?= $(shell pwd)/bin/configs
 
 # Go build flags
 GO_FLAGS = -ldflags="-s -w"
+
+# Run environment
+RUN_ENV ?= local
 
 # Targets
 .PHONY: all test build run docker-build docker-run clean
@@ -37,7 +43,7 @@ run:
 # Build the Docker image
 docker-build:
 	@echo "Building Docker image..."
-	@docker build --build-arg TZ=Asia/Shanghai -t $(IMAGE_NAME) .
+	@docker build --build-arg TZ=$(TZ) -t $(IMAGE_NAME) .
 
 # Run the Docker container
 docker-run: docker-clean
@@ -49,6 +55,7 @@ docker-run: docker-clean
 		-v $(CONFIG_DIR):/bin/configs \
 		-v /bin/docker:/bin/docker \
 		-e APP_NAME=$(APP_NAME) \
+		-e RUN_ENV=$(RUN_ENV) \
 		--restart always \
 		$(IMAGE_NAME)
 
