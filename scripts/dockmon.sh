@@ -5,7 +5,7 @@ APP_NAME=${APP_NAME:-dockmon}
 IMAGE_NAME=${IMAGE_NAME:-$APP_NAME:latest}
 CONFIG_DIR=${CONFIG_DIR:-$(pwd)/bin/configs}
 TZ=${TZ:-Asia/Shanghai}
-RUN_MODE=${RUN_MODE:-local}
+RUN_ENV=${RUN_ENV:-local}
 
 # Default target that includes formatting, linting, testing, and building
 all() {
@@ -32,7 +32,7 @@ build() {
 # Run the application
 run() {
   echo "Running application..."
-  RUN_MODE=$RUN_MODE ./bin/$APP_NAME  # Run the compiled binary
+  RUN_ENV=$RUN_ENV ./bin/$APP_NAME  # Run the compiled binary
 }
 
 # Build the Docker image
@@ -53,7 +53,7 @@ docker_run() {
     -v $CONFIG_DIR:/bin/configs \
     -v /bin/docker:/bin/docker \
     -e APP_NAME=$APP_NAME \
-    -e RUN_MODE=$RUN_MODE \
+    -e RUN_ENV=$RUN_ENV \
     $IMAGE_NAME
 }
 
