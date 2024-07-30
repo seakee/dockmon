@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/seakee/dockmon/app/model/collector"
 	"go.uber.org/zap"
@@ -67,7 +69,7 @@ func (h *handler) storeLog(ctx context.Context, entry *LogEntry) {
 		Level:         entry.Level,
 		Time:          t,
 		Caller:        entry.Caller,
-		Message:       entry.Message,
+		Message:       cleanString(entry.Message),
 		TraceID:       entry.TraceID,
 		ContainerID:   entry.ContainerID,
 		ContainerName: entry.ContainerName,
@@ -77,6 +79,28 @@ func (h *handler) storeLog(ctx context.Context, entry *LogEntry) {
 	if _, err = h.service.Store(ctx, log); err != nil {
 		h.logger.Error(ctx, "create log error", zap.Error(err))
 	}
+}
+
+// cleanString 清理字符串中的不可打印字符
+func cleanString(s string) string {
+	if !utf8.ValidString(s) {
+		v := make([]rune, 0, len(s))
+		for i, r := range s {
+			if r == utf8.RuneError {
+				_, size := utf8.DecodeRuneInString(s[i:])
+				if size == 1 {
+					continue
+				}
+			}
+			if !unicode.IsPrint(r) {
+				// 替换不可打印字符为空格或其他可打印字符
+				r = ' '
+			}
+			v = append(v, r)
+		}
+		return string(v)
+	}
+	return s
 }
 
 // processUnstructuredLog 处理未结构化的日志
