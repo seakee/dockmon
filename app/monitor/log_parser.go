@@ -34,7 +34,7 @@ type LogEntry struct {
 // parseTimeString 尝试解析多种时间格式的字符串并返回 time.Time 类型
 func (h *handler) parseTimeString(timeStr string) (time.Time, error) {
 	for _, format := range h.configs.TimeLayout {
-		if parsedTime, err := time.Parse(format, timeStr); err == nil {
+		if parsedTime, err := time.ParseInLocation(format, timeStr, time.Local); err == nil {
 			return parsedTime, nil
 		}
 	}
