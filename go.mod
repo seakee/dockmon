@@ -10,14 +10,14 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/sk-pkg/feishu v0.1.9
 	github.com/sk-pkg/i18n v1.2.0
-	github.com/sk-pkg/logger v1.1.1
+	github.com/sk-pkg/logger v1.3.0
 	github.com/sk-pkg/monitor v0.1.0
-	github.com/sk-pkg/mysql v1.0.1
+	github.com/sk-pkg/mysql v1.1.1
 	github.com/sk-pkg/redis v1.0.1
 	github.com/sk-pkg/util v1.0.1
 	go.uber.org/zap v1.27.0
 	gorm.io/datatypes v1.2.1
-	gorm.io/gorm v1.25.10
+	gorm.io/gorm v1.25.12
 )
 
 require (
@@ -50,7 +50,7 @@ require (
 	github.com/kr/pretty v0.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible // indirect
-	github.com/lestrrat-go/strftime v1.0.6 // indirect
+	github.com/lestrrat-go/strftime v1.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/term v0.5.0 // indirect
@@ -78,6 +78,6 @@ require (
 	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	gorm.io/driver/mysql v1.5.6 // indirect
+	gorm.io/driver/mysql v1.5.7 // indirect
 	gotest.tools/v3 v3.5.1 // indirect
 )
