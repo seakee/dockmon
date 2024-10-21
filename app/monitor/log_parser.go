@@ -44,6 +44,11 @@ func (h *handler) parseTimeString(timeStr string) (time.Time, error) {
 
 // storeLog 存储日志
 func (h *handler) storeLog(ctx context.Context, entry *LogEntry) {
+	// when message is empty, skip
+	if entry.Message == "" {
+		return
+	}
+
 	// 序列化日志的额外信息
 	extraJSON, err := json.Marshal(entry.Extra)
 	if err != nil {
