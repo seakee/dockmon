@@ -10,9 +10,9 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/sk-pkg/feishu v0.1.9
 	github.com/sk-pkg/i18n v1.2.0
-	github.com/sk-pkg/logger v1.3.0
+	github.com/sk-pkg/logger v1.3.2
 	github.com/sk-pkg/monitor v0.1.0
-	github.com/sk-pkg/mysql v1.1.1
+	github.com/sk-pkg/mysql v1.1.3
 	github.com/sk-pkg/redis v1.0.1
 	github.com/sk-pkg/util v1.0.1
 	go.uber.org/zap v1.27.0
