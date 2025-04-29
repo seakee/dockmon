@@ -44,7 +44,10 @@ func NewApp(config *app.Config) (*App, error) {
 		return nil, err
 	}
 
-	a.loadRedis(ctx)
+	err = a.loadRedis(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	err = a.loadFeishu(ctx)
 	if err != nil {
@@ -100,10 +103,10 @@ func (a *App) loadLogger(ctx context.Context) error {
 }
 
 // loadRedis 加载Redis模块
-func (a *App) loadRedis(ctx context.Context) {
+func (a *App) loadRedis(ctx context.Context) error {
 	for _, cfg := range a.Config.Redis {
 		if cfg.Enable {
-			r := redis.New(
+			r, err := redis.New(
 				redis.WithPrefix(cfg.Prefix),
 				redis.WithAddress(cfg.Host),
 				redis.WithPassword(cfg.Auth),
@@ -113,11 +116,17 @@ func (a *App) loadRedis(ctx context.Context) {
 				redis.WithDB(cfg.DB),
 			)
 
+			if err != nil {
+				return err
+			}
+
 			a.Redis[cfg.Name] = r
 		}
 	}
 
 	a.Logger.Info(ctx, "Redis loaded successfully")
+
+	return nil
 }
 
 // loadI18n 加载国际化模块
