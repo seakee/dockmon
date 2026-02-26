@@ -2,6 +2,7 @@
 // Use of this source code is governed by a MIT style
 // license that can be found in the LICENSE file.
 
+// Package app defines global configuration models and config loading helpers.
 package app
 
 import (
@@ -18,69 +19,78 @@ const (
 	nameKey = "APP_NAME"
 )
 
+// config stores the singleton configuration loaded by LoadConfig.
 var config *Config
 
 type (
+	// Config is the root configuration model loaded from bin/configs/*.json.
 	Config struct {
-		System    SysConfig   `json:"system"`    // 应用系统配置
-		Log       LogConfig   `json:"log"`       // 日志配置
-		Databases []Databases `json:"databases"` // 数据库配置
-		Cache     Cache       `json:"cache"`     // 缓存配置
-		Redis     []Redis     `json:"redis"`     // Redis 配置
-		Monitor   Monitor     `json:"monitor"`   // 监控配置
-		Feishu    Feishu      `json:"feishu"`    // 飞书配置
-		Collector Collector   `json:"collector"` // 日志采集器配置
+		System    SysConfig   `json:"system"`    // Application runtime settings.
+		Log       LogConfig   `json:"log"`       // Logger output settings.
+		Databases []Databases `json:"databases"` // Database connection settings.
+		Cache     Cache       `json:"cache"`     // Cache settings.
+		Redis     []Redis     `json:"redis"`     // Redis client settings.
+		Monitor   Monitor     `json:"monitor"`   // Panic and alert monitor settings.
+		Feishu    Feishu      `json:"feishu"`    // Feishu integration settings.
+		Collector Collector   `json:"collector"` // Docker log collector settings.
 	}
 
+	// LogConfig controls logger driver and severity level.
 	LogConfig struct {
-		Driver  string `json:"driver"`   // 日志驱动 stdout, file
-		Level   string `json:"level"`    // 日志级别 debug,info,warn,error,fatal
-		LogPath string `json:"log_path"` // 日志路径，仅当Driver为file时生效
+		Driver  string `json:"driver"` // Logger driver, such as "stdout" or "file".
+		Level   string `json:"level"`  // Log level: debug, info, warn, error, fatal.
+		LogPath string `json:"path"`   // Log file path when driver is "file".
 	}
 
+	// SysConfig stores basic runtime properties for the service.
 	SysConfig struct {
-		Name         string        `json:"name"`          // 应用名称
-		RunMode      string        `json:"run_mode"`      // 运行模式
-		HTTPPort     string        `json:"http_port"`     // 端口号
-		ReadTimeout  time.Duration `json:"read_timeout"`  // 请求最大超时时间
-		WriteTimeout time.Duration `json:"write_timeout"` // 响应最大超时时间
-		Version      string        `json:"version"`       // 版本号
-		RootPath     string        `json:"root_path"`     // 根目录
-		DebugMode    bool          `json:"debug_mode"`    // 调试模式
-		LangDir      string        `json:"lang_dir"`      // 语言目录
-		DefaultLang  string        `json:"default_lang"`  // 默认语言
-		EnvKey       string        `json:"env_key"`       // 运行环境key，用来读取运行环境
-		JwtSecret    string        `json:"jwt_secret"`    // 鉴权服务JwtSecret
-		TokenExpire  time.Duration `json:"token_expire"`  // 鉴权服务token过期时间(秒)
-		Env          string        `json:"env"`           // 运行环境
+		Name         string        `json:"name"`          // Service name.
+		RunMode      string        `json:"run_mode"`      // Gin run mode.
+		HTTPPort     string        `json:"http_port"`     // HTTP listen address.
+		ReadTimeout  time.Duration `json:"read_timeout"`  // Maximum request read timeout in seconds.
+		WriteTimeout time.Duration `json:"write_timeout"` // Maximum response write timeout in seconds.
+		Version      string        `json:"version"`       // Service version.
+		RootPath     string        `json:"root_path"`     // Runtime root path.
+		DebugMode    bool          `json:"debug_mode"`    // Debug mode toggle.
+		LangDir      string        `json:"lang_dir"`      // i18n language files directory.
+		DefaultLang  string        `json:"default_lang"`  // Default language key.
+		EnvKey       string        `json:"env_key"`       // Environment variable key that stores run env.
+		JwtSecret    string        `json:"jwt_secret"`    // Secret key for JWT signing.
+		TokenExpire  time.Duration `json:"token_expire"`  // JWT expiration time in seconds.
+		Env          string        `json:"env"`           // Resolved runtime environment.
 	}
 
+	// Databases stores one database connection profile.
 	Databases struct {
-		Enable        bool          `json:"enable"`                     // 开关
-		DbType        string        `json:"db_type"`                    // 类型
-		DbHost        string        `json:"db_host"`                    // HOST
-		DbName        string        `json:"db_name"`                    // 数据库名称
-		DbUsername    string        `json:"db_username,omitempty"`      // 数据库用户名
-		DbPassword    string        `json:"db_password,omitempty"`      // 数据库用户密码
-		DbMaxIdleConn int           `json:"db_max_idle_conn,omitempty"` // 空闲连接池中连接的最大数量
-		DbMaxOpenConn int           `json:"db_max_open_conn,omitempty"` // 数据库连接的最大数量
-		DbMaxLifetime time.Duration `json:"db_max_lifetime,omitempty"`  // 连接可复用的最大时间（单位：小时）
+		Enable                 bool          `json:"enable"`                              // Whether this DB profile is enabled.
+		DbType                 string        `json:"db_type"`                             // Database type, such as mysql.
+		DbHost                 string        `json:"db_host"`                             // Database host.
+		DbName                 string        `json:"db_name"`                             // Database name.
+		DbUsername             string        `json:"db_username,omitempty"`               // Database username.
+		DbPassword             string        `json:"db_password,omitempty"`               // Database password.
+		DbMaxIdleConn          int           `json:"db_max_idle_conn,omitempty"`          // Maximum idle connections.
+		DbMaxOpenConn          int           `json:"db_max_open_conn,omitempty"`          // Maximum open connections.
+		DbMaxLifetime          time.Duration `json:"db_max_lifetime,omitempty"`           // Connection max lifetime in hours.
+		DbConnectRetryCount    int           `json:"db_connect_retry_count,omitempty"`    // Retry count when DB initialization fails.
+		DbConnectRetryInterval int           `json:"db_connect_retry_interval,omitempty"` // Retry interval in seconds.
 	}
 
+	// Cache holds global cache settings.
 	Cache struct {
-		Driver string `json:"driver"` // 缓存驱动
-		Prefix string `json:"prefix"` // 缓存前缀
+		Driver string `json:"driver"` // Cache driver name.
+		Prefix string `json:"prefix"` // Cache key prefix.
 	}
 
+	// Redis stores one Redis connection profile.
 	Redis struct {
-		Name        string        `json:"name"`         // Redis连接名
-		Enable      bool          `json:"enable"`       // 开关
-		Host        string        `json:"host"`         // HOST
-		Auth        string        `json:"auth"`         // 授权
-		MaxIdle     int           `json:"max_idle"`     // 最大空闲连接数
-		MaxActive   int           `json:"max_active"`   // 一个pool所能分配的最大的连接数目
-		IdleTimeout time.Duration `json:"idle_timeout"` // 空闲连接超时时间，超过超时时间的空闲连接会被关闭（单位：分钟）
-		Prefix      string        `json:"prefix"`       // 前缀
+		Name        string        `json:"name"`         // Redis connection alias.
+		Enable      bool          `json:"enable"`       // Whether this Redis profile is enabled.
+		Host        string        `json:"host"`         // Redis host.
+		Auth        string        `json:"auth"`         // Redis password or auth token.
+		MaxIdle     int           `json:"max_idle"`     // Maximum idle connections.
+		MaxActive   int           `json:"max_active"`   // Maximum active connections.
+		IdleTimeout time.Duration `json:"idle_timeout"` // Idle timeout in minutes.
+		Prefix      string        `json:"prefix"`       // Redis key prefix.
 		DB          int           `json:"db"`
 	}
 
@@ -107,14 +117,31 @@ type (
 		EncryptKey   string `json:"encrypt_key"`
 	}
 
+	// Collector controls Docker log collection behavior.
 	Collector struct {
-		MonitorSelf              bool     `json:"monitor_self"`                // 是否监视本应用
-		UnstructuredLogLineFlags []string `json:"unstructured_log_line_flags"` // 支持解析的非结构日志行标记
-		TimeLayout               []string `json:"time_layout"`                 // 支持解析的日志时间格式
-		ContainerName            []string `json:"container_name"`              // 需要采集的容器名称
+		MonitorSelf              bool     `json:"monitor_self"`                // Whether to monitor this service container itself.
+		UnstructuredLogLineFlags []string `json:"unstructured_log_line_flags"` // Prefix flags recognized as unstructured logs.
+		TimeLayout               []string `json:"time_layout"`                 // Supported log time formats.
+		ContainerName            []string `json:"container_name"`              // Container names to collect logs from.
 	}
 )
 
+// LoadConfig loads configuration from bin/configs/<RUN_ENV>.json.
+//
+// Returns:
+//   - *Config: parsed configuration instance also stored globally.
+//   - error: returned when reading or decoding configuration fails.
+//
+// Behavior:
+//   - Uses "local" when RUN_ENV is not provided.
+//   - Applies APP_NAME override when present.
+//
+// Example:
+//
+//	cfg, err := app.LoadConfig()
+//	if err != nil {
+//		panic(err)
+//	}
 func LoadConfig() (*Config, error) {
 	var (
 		runEnv     string
@@ -134,7 +161,7 @@ func LoadConfig() (*Config, error) {
 		log.Fatalf("无法获取工作目录: %v", err)
 	}
 
-	// 拼接配置文件路径
+	// Build the environment-specific configuration file path.
 	configFilePath := filepath.Join(rootPath, "bin", "configs", fmt.Sprintf("%s.json", runEnv))
 	cfgContent, err = os.ReadFile(configFilePath)
 	if err != nil {
@@ -161,12 +188,23 @@ func LoadConfig() (*Config, error) {
 	return config, nil
 }
 
+// checkConfig validates required runtime configuration fields.
+//
+// Parameters:
+//   - conf: configuration object to validate.
+//
+// Returns:
+//   - None.
 func checkConfig(conf *Config) {
 	if conf.System.JwtSecret == "" {
 		log.Panicf("JwtSecret Can not be null")
 	}
 }
 
+// GetConfig returns the globally loaded configuration singleton.
+//
+// Returns:
+//   - *Config: configuration instance loaded by LoadConfig.
 func GetConfig() *Config {
 	return config
 }

@@ -2,10 +2,13 @@
 // Use of this source code is governed by a MIT style
 // license that can be found in the LICENSE file.
 
+// Package bootstrap initializes service dependencies and starts runtime workers.
 package bootstrap
 
 import (
 	"context"
+
+	"go.uber.org/zap"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +23,8 @@ import (
 	"gorm.io/gorm"
 )
 
+// App stores initialized dependencies required by HTTP APIs, schedulers, and
+// collectors.
 type App struct {
 	Config     *app.Config
 	Logger     *logger.Manager
@@ -32,9 +37,26 @@ type App struct {
 	TraceID    *trace.ID
 }
 
+// NewApp creates a fully initialized application container.
+//
+// Parameters:
+//   - config: parsed runtime configuration loaded from JSON files.
+//
+// Returns:
+//   - *App: initialized app with logger, redis, i18n, DB, middleware, and router.
+//   - error: returned when any dependency initialization step fails.
+//
+// Example:
+//
+//	cfg, _ := app.LoadConfig()
+//	a, err := bootstrap.NewApp(cfg)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
 func NewApp(config *app.Config) (*App, error) {
 	a := &App{Config: config, MysqlDB: map[string]*gorm.DB{}, Redis: map[string]*redis.Manager{}}
 
+	// Trace IDs must be ready before logger initialization.
 	a.loadTrace()
 
 	ctx := context.WithValue(context.Background(), logger.TraceIDKey, a.TraceID.New())
@@ -70,23 +92,39 @@ func NewApp(config *app.Config) (*App, error) {
 	return a, nil
 }
 
-// Start 启动应用
+// Start launches all background subsystems of the application.
+//
+// Returns:
+//   - None.
+//
+// Behavior:
+//   - Starts HTTP server, schedule loop, and container log collector
+//     concurrently.
 func (a *App) Start() {
 	ctx := context.WithValue(context.Background(), logger.TraceIDKey, a.TraceID.New())
-	// 启动HTTP服务
+	// Start the HTTP API server.
 	go a.startHTTPServer(ctx)
-	// 启动调度任务
+	// Start the cron-like scheduler.
 	go a.startSchedule(ctx)
-	// 启动日志采集器
+	// Start Docker container log collection.
 	go a.startCollector(ctx)
 }
 
-// loadTrace 加载 TraceID
+// loadTrace initializes the trace ID generator.
+//
+// Returns:
+//   - None.
 func (a *App) loadTrace() {
 	a.TraceID = trace.NewTraceID()
 }
 
-// loadLogger 加载日志模块
+// loadLogger initializes the logger manager.
+//
+// Parameters:
+//   - ctx: trace-aware context used for initialization logs.
+//
+// Returns:
+//   - error: returned when logger initialization fails.
 func (a *App) loadLogger(ctx context.Context) error {
 	var err error
 	a.Logger, err = logger.New(
@@ -102,7 +140,13 @@ func (a *App) loadLogger(ctx context.Context) error {
 	return err
 }
 
-// loadRedis 加载Redis模块
+// loadRedis initializes configured Redis clients and stores them by name.
+//
+// Parameters:
+//   - ctx: trace-aware context used for initialization logs.
+//
+// Returns:
+//   - error: returned when creating any enabled Redis client fails.
 func (a *App) loadRedis(ctx context.Context) error {
 	for _, cfg := range a.Config.Redis {
 		if cfg.Enable {
@@ -129,7 +173,13 @@ func (a *App) loadRedis(ctx context.Context) error {
 	return nil
 }
 
-// loadI18n 加载国际化模块
+// loadI18n initializes the i18n manager from runtime configuration.
+//
+// Parameters:
+//   - ctx: trace-aware context used for initialization logs.
+//
+// Returns:
+//   - error: returned when i18n initialization fails.
 func (a *App) loadI18n(ctx context.Context) error {
 	var err error
 	a.I18n, err = i18n.New(
@@ -146,40 +196,35 @@ func (a *App) loadI18n(ctx context.Context) error {
 	return err
 }
 
-// loadDB 加载数据库模块
+// loadDB initializes all enabled databases.
+//
+// Parameters:
+//   - ctx: trace-aware context used for initialization logs.
+//
+// Returns:
+//   - error: returned when any configured database cannot be initialized.
 func (a *App) loadDB(ctx context.Context) error {
+	for _, dbConfig := range a.Config.Databases {
+		if !dbConfig.Enable {
+			continue
+		}
 
-	for _, db := range a.Config.Databases {
-		if db.Enable {
-			switch db.DbType {
-			case "mysql":
-				mysqlLogger := mysql.NewLog(a.Logger.CallerSkipMode(4))
-				d, err := mysql.New(mysql.WithConfigs(
-					mysql.Config{
-						User:     db.DbUsername,
-						Password: db.DbPassword,
-						Host:     db.DbHost,
-						DBName:   db.DbName,
-					}),
-					mysql.WithConnMaxLifetime(db.DbMaxLifetime*time.Hour),
-					mysql.WithMaxIdleConn(db.DbMaxIdleConn),
-					mysql.WithMaxOpenConn(db.DbMaxOpenConn),
-					mysql.WithGormConfig(gorm.Config{Logger: mysqlLogger}),
-				)
-
-				if err != nil {
-					return err
-				}
-
-				// if debug mode and not prod, enable gorm debug mode
-				if a.Config.System.DebugMode && a.Config.System.Env != "prod" {
-					d = d.Debug()
-				}
-
-				a.MysqlDB[db.DbName] = d
-			case "mongo":
-				// TODO mongo初始化逻辑
+		switch dbConfig.DbType {
+		case "mysql":
+			// Use retry logic because containerized services may start slowly.
+			d, err := a.newMysqlDBWithRetry(ctx, dbConfig)
+			if err != nil {
+				return err
 			}
+
+			// Enable verbose SQL logs only in non-production debug mode.
+			if a.Config.System.DebugMode && a.Config.System.Env != "prod" {
+				d = d.Debug()
+			}
+
+			a.MysqlDB[dbConfig.DbName] = d
+		case "mongo":
+			// TODO: Add MongoDB initialization logic when Mongo support is enabled.
 		}
 	}
 
@@ -188,7 +233,86 @@ func (a *App) loadDB(ctx context.Context) error {
 	return nil
 }
 
-// loadFeishu 加载飞书模块
+// newMysqlDBWithRetry creates a MySQL connection with configurable retry
+// behavior.
+//
+// Parameters:
+//   - ctx: trace-aware context for retry logs and cancellation.
+//   - dbConfig: database configuration including DSN parts and retry policy.
+//
+// Returns:
+//   - *gorm.DB: initialized GORM client.
+//   - error: returned when all retry attempts fail or context is canceled.
+//
+// Behavior:
+//   - Defaults to 3 retries with 3-second intervals when not configured.
+//   - Stops early when context cancellation is received.
+func (a *App) newMysqlDBWithRetry(ctx context.Context, dbConfig app.Databases) (*gorm.DB, error) {
+	retryCount := dbConfig.DbConnectRetryCount
+	if retryCount <= 0 {
+		retryCount = 3
+	}
+
+	retryInterval := dbConfig.DbConnectRetryInterval
+	if retryInterval <= 0 {
+		retryInterval = 3
+	}
+
+	mysqlLogger := mysql.NewLog(a.Logger.CallerSkipMode(4))
+	var (
+		d   *gorm.DB
+		err error
+	)
+
+	for attempt := 1; attempt <= retryCount; attempt++ {
+		d, err = mysql.New(mysql.WithConfigs(
+			mysql.Config{
+				User:     dbConfig.DbUsername,
+				Password: dbConfig.DbPassword,
+				Host:     dbConfig.DbHost,
+				DBName:   dbConfig.DbName,
+			}),
+			mysql.WithConnMaxLifetime(dbConfig.DbMaxLifetime*time.Hour),
+			mysql.WithMaxIdleConn(dbConfig.DbMaxIdleConn),
+			mysql.WithMaxOpenConn(dbConfig.DbMaxOpenConn),
+			mysql.WithGormConfig(gorm.Config{Logger: mysqlLogger}),
+		)
+		if err == nil {
+			return d, nil
+		}
+
+		if attempt == retryCount {
+			break
+		}
+
+		waitTime := time.Duration(retryInterval) * time.Second
+		a.Logger.Warn(
+			ctx, "database connection failed, preparing retry",
+			zap.String("dbName", dbConfig.DbName),
+			zap.String("host", dbConfig.DbHost),
+			zap.Int("attempt", attempt),
+			zap.Int("maxAttempts", retryCount),
+			zap.Duration("retryAfter", waitTime),
+			zap.Error(err),
+		)
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(waitTime):
+		}
+	}
+
+	return nil, err
+}
+
+// loadFeishu initializes Feishu integration when enabled.
+//
+// Parameters:
+//   - ctx: trace-aware context used for initialization logs.
+//
+// Returns:
+//   - error: returned when Feishu initialization fails.
 func (a *App) loadFeishu(ctx context.Context) error {
 	var err error
 
