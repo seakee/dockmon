@@ -19,49 +19,55 @@ const (
 
 var curMem uint64
 
-// TestTraceID_New is a function that tests the concurrency safety of the NewTraceID function.
-// It simulates a high concurrency scenario by creating a large number of concurrent goroutines and
-// checks whether the generated TraceIDs remain unique under this scenario.
-// Note: This function can consume significant amounts of memory.
-// Please evaluate your computer's hardware resources before executing.
+// TestTraceID_New validates uniqueness under high concurrency.
+//
+// Parameters:
+//   - t: testing context.
+//
+// Returns:
+//   - None.
+//
+// Behavior:
+//   - Generates a large number of IDs concurrently.
+//   - Fails when any duplicate ID is detected.
 func TestTraceID_New(t *testing.T) {
-	// CreateApp a new instance of TraceID
+	// Create a trace ID generator for the stress test.
 	tid := NewTraceID()
 
-	// Use a mutex to ensure thread-safe access to the uniqueIDs map
+	// Protect shared map writes from concurrent goroutines.
 	var mu sync.Mutex
-	// Store generated TraceIDs to check for duplicates
+	// Track all generated IDs to detect duplicates.
 	uniqueIDs := make(map[string]struct{})
-	// Use a wait group to wait for all concurrent test goroutines to complete
+	// Wait for all goroutines to finish.
 	var wg sync.WaitGroup
 
-	// Define the concurrency level, i.e., the number of goroutines running simultaneously
+	// Configure worker count for concurrency simulation.
 	const concurrency = 10000
-	// Launch the specified number of concurrent goroutines
+	// Start concurrent workers.
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			// In each goroutine, generate a large number of TraceIDs in a loop
+			// Generate IDs in a tight loop per worker.
 			for j := 0; j < 10000; j++ {
 				id := tid.New()
 				mu.Lock()
-				// Check if the generated ID already exists; if so, record an error and exit the current goroutine
+				// Fail fast when a duplicate ID is found.
 				if _, exists := uniqueIDs[id]; exists {
 					mu.Unlock()
 					t.Errorf("Duplicate ID found: %s", id)
 					return
 				}
-				// Add the newly generated ID to the uniqueIDs map
+				// Record generated ID for uniqueness checks.
 				uniqueIDs[id] = struct{}{}
 				mu.Unlock()
 			}
 		}()
 	}
 
-	// Wait for all goroutines to complete
+	// Wait for all workers before assertions and metrics.
 	wg.Wait()
-	// Record the count of unique IDs generated
+	// Emit metrics for observability.
 	t.Logf("Unique IDs count: %d", len(uniqueIDs))
 	mem := runtime.MemStats{}
 	runtime.ReadMemStats(&mem)
@@ -69,6 +75,13 @@ func TestTraceID_New(t *testing.T) {
 	t.Logf("memory usage:%d MB", curMem)
 }
 
+// BenchmarkTraceID_New benchmarks single-call ID generation throughput.
+//
+// Parameters:
+//   - b: benchmark context.
+//
+// Returns:
+//   - None.
 func BenchmarkTraceID_New(b *testing.B) {
 	id := NewTraceID()
 	for i := 0; i < b.N; i++ {

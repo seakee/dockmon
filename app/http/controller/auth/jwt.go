@@ -13,6 +13,19 @@ import (
 
 const appTokenExpireTime = 168 * 3600
 
+// GetToken returns a Gin handler that issues JWT tokens for server apps.
+//
+// Returns:
+//   - gin.HandlerFunc: request handler for token generation.
+//
+// Behavior:
+//   - Reads app_id and app_secret from form fields.
+//   - Validates app credentials from the repository.
+//   - Signs a JWT token and returns expiration metadata.
+//
+// Example:
+//
+//	router.POST("/token", authHandler.GetToken())
 func (h handler) GetToken() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var (
@@ -29,9 +42,11 @@ func (h handler) GetToken() gin.HandlerFunc {
 
 		errCode = e.InvalidParams
 		if appID != "" && appSecret != "" {
+			// Only active apps (status=1) are allowed to request tokens.
 			app, err = h.repo.GetApp(&auth.App{AppID: appID, AppSecret: appSecret, Status: 1})
 			errCode = e.ServerAppNotFound
 			if err == nil {
+				// Generate a short-lived JWT for authenticated app clients.
 				token, err = jwt.GenerateAppToken(app, appTokenExpireTime)
 				errCode = e.ServerAuthorizationFail
 				if err == nil {

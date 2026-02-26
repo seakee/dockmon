@@ -9,6 +9,18 @@ import (
 	"github.com/seakee/dockmon/app/http/controller/auth"
 )
 
+// authGroup registers app-auth related routes in the given route group.
+//
+// Parameters:
+//   - api: service route group where auth endpoints are mounted.
+//   - core: shared dependency container.
+//
+// Returns:
+//   - None.
+//
+// Example:
+//
+//	authGroup(serviceGroup.Group("server/auth"), core)
 func authGroup(api *gin.RouterGroup, core *Core) {
 	authHandler := auth.New(core.Logger, core.Redis["dockmon"], core.I18n, core.MysqlDB["dockmon"])
 	{

@@ -18,7 +18,18 @@ import (
 	"go.uber.org/zap"
 )
 
-// startHTTPServer 启动HTTP服务
+// startHTTPServer creates and runs the Gin-backed HTTP server.
+//
+// Parameters:
+//   - ctx: trace-aware context used for startup and fatal logs.
+//
+// Returns:
+//   - None.
+//
+// Behavior:
+//   - Builds router core dependencies.
+//   - Applies timeout and header size limits from config.
+//   - Terminates the process only for unexpected ListenAndServe errors.
 func (a *App) startHTTPServer(ctx context.Context) {
 	gin.SetMode(a.Config.System.RunMode)
 
@@ -44,13 +55,19 @@ func (a *App) startHTTPServer(ctx context.Context) {
 		MaxHeaderBytes: maxHeaderBytes,
 	}
 
-	// 监听HTTP服务
+	// Start listening for incoming HTTP requests.
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		a.Logger.Fatal(ctx, "http server startup err", zap.Error(err))
 	}
 }
 
-// loadMux 加载gin引擎
+// loadMux initializes the Gin engine and shared middlewares.
+//
+// Parameters:
+//   - ctx: trace-aware context used for initialization logs.
+//
+// Returns:
+//   - None.
 func (a *App) loadMux(ctx context.Context) {
 	mux := gin.New()
 
@@ -63,14 +80,21 @@ func (a *App) loadMux(ctx context.Context) {
 	mux.Use(a.Middleware.Cors())
 	mux.Use(gin.Recovery())
 
-	a.loadPanicRobot(mux) // panic监控
+	// Attach panic reporting middleware after core middlewares.
+	a.loadPanicRobot(mux)
 
 	a.Mux = mux
 
 	a.Logger.Info(ctx, "Mux loaded successfully")
 }
 
-// loadPanicRobot 加载panic监控机器人
+// loadPanicRobot registers panic-report middleware when robot config is enabled.
+//
+// Parameters:
+//   - mux: gin engine that receives panic middleware.
+//
+// Returns:
+//   - None.
 func (a *App) loadPanicRobot(mux *gin.Engine) {
 	panicRobot, err := monitor.NewPanicRobot(
 		monitor.PanicRobotEnable(a.Config.Monitor.PanicRobot.Enable),
@@ -86,7 +110,13 @@ func (a *App) loadPanicRobot(mux *gin.Engine) {
 	}
 }
 
-// loadHTTPMiddlewares 加载HTTP中间件
+// loadHTTPMiddlewares builds middleware dependencies shared by all routes.
+//
+// Parameters:
+//   - ctx: trace-aware context used for initialization logs.
+//
+// Returns:
+//   - None.
 func (a *App) loadHTTPMiddlewares(ctx context.Context) {
 	a.Middleware = middleware.New(a.Logger, a.I18n, a.MysqlDB, a.Redis, a.TraceID)
 	a.Logger.Info(ctx, "Middlewares loaded successfully")
