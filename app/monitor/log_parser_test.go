@@ -8,6 +8,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 var lines = `[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
@@ -47,10 +48,18 @@ created by testing.(*T).Run in goroutine 1
 {"L":"ERROR","T":"2024-07-02T15:00:27.978+0800","C":"monitor/log_parser.go:70","M":"create log error","TraceID":"ea00fd99a245.lan-d2euy7h89o6g-5yc1v","error":"create err: Error 1292 (22007): Incorrect datetime value: '0000-00-00' for column 'time' at row 1","errorVerbose":"Error 1292 (22007): Incorrect datetime value: '0000-00-00' for column 'time' at row 1\ncreate err\ngithub.com/seakee/dockmon/app/model/monitor.(*Log).Create\n\t/WorkSpace/Golang/src/github.com/seakee/dockmon/app/model/monitor/log.go:48\ngithub.com/seakee/dockmon/app/repository/monitor.(*repo).CreateLog\n\t/WorkSpace/Golang/src/github.com/seakee/dockmon/app/repository/monitor/log.go:22\ngithub.com/seakee/dockmon/app/service/monitor.logService.Store\n\t/WorkSpace/Golang/src/github.com/seakee/dockmon/app/service/monitor/log.go:25\ngithub.com/seakee/dockmon/app/monitor.(*handler).storeLog\n\t/WorkSpace/Golang/src/github.com/seakee/dockmon/app/monitor/log_parser.go:69\ngithub.com/seakee/dockmon/app/monitor.(*handler).processUnstructuredLog\n\t/WorkSpace/Golang/src/github.com/seakee/dockmon/app/monitor/log_parser.go:87\ngithub.com/seakee/dockmon/app/monitor.(*handler).processLogLine\n\t/WorkSpace/Golang/src/github.com/seakee/dockmon/app/monitor/log_parser.go:115\ngithub.com/seakee/dockmon/app/monitor.(*handler).collectLogs\n\t/WorkSpace/Golang/src/github.com/seakee/dockmon/app/monitor/handler.go:205\nruntime.goexit\n\t/WorkSpace/Golang/go1.22.4/src/runtime/asm_amd64.s:1695"}
 `
 
+// TestProcessLogLine verifies parser behavior across structured and unstructured
+// log samples.
+//
+// Parameters:
+//   - t: testing context.
+//
+// Returns:
+//   - None.
 func TestProcessLogLine(t *testing.T) {
 	h, err := newTestCollector()
 	if err != nil {
-		t.Error(err)
+		t.Fatalf("newTestCollector() error: %v", err)
 	}
 
 	h.unstructuredLogs.entries["testID"] = &unstructuredLogBuffer{
@@ -62,5 +71,60 @@ func TestProcessLogLine(t *testing.T) {
 	sections := strings.Split(lines, "\n")
 	for _, section := range sections {
 		h.processLogLine(context.Background(), "2024-07-02T16:53:00.265+0800", section, "testID", "testName")
+	}
+}
+
+// TestCleanString verifies control-character and invalid-UTF8 cleanup.
+//
+// Parameters:
+//   - t: testing context.
+//
+// Returns:
+//   - None.
+func TestCleanString(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "remove ansi and control chars",
+			in:   "\u001b[31;1merror\u001b[0m\tmessage\x00",
+			want: "error\tmessage",
+		},
+		{
+			name: "remove invalid utf8 bytes",
+			in:   string([]byte{'a', 0xff, 'b'}),
+			want: "ab",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cleanString(tt.in)
+			if got != tt.want {
+				t.Fatalf("cleanString() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestCleanStringTruncatesUTF8Safely verifies UTF-8-safe truncation at byte
+// limit.
+//
+// Parameters:
+//   - t: testing context.
+//
+// Returns:
+//   - None.
+func TestCleanStringTruncatesUTF8Safely(t *testing.T) {
+	src := strings.Repeat("测", 30000)
+	got := cleanString(src)
+
+	if len(got) > maxLogMessageBytes {
+		t.Fatalf("len(cleanString()) = %d, want <= %d", len(got), maxLogMessageBytes)
+	}
+	if !utf8.ValidString(got) {
+		t.Fatal("cleanString() returned invalid utf8 string")
 	}
 }

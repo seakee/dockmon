@@ -16,34 +16,42 @@ import (
 	"go.uber.org/zap"
 )
 
-// RequestLogger 记录请求日志
+// RequestLogger returns middleware that records structured HTTP request logs.
+//
+// Returns:
+//   - gin.HandlerFunc: middleware that logs latency, request metadata, and body.
+//
+// Behavior:
+//   - Reads and restores request body so handlers can consume it later.
+//   - Logs trace ID, status code, latency, method, URI, and source IP.
 func (m middleware) RequestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 开始时间
+		// Capture start time before forwarding to downstream handlers.
 		startTime := time.Now()
 
+		// Read and restore body so it remains available after logging.
 		buf, _ := io.ReadAll(c.Request.Body)
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(buf))
 
-		// 处理请求
+		// Execute remaining middleware/handler chain.
 		c.Next()
 
-		// 结束时间
+		// Capture end time after request processing.
 		endTime := time.Now()
 
-		// 执行时间
+		// Calculate total request latency.
 		latencyTime := endTime.Sub(startTime)
 
-		// 请求方式
+		// Collect HTTP method.
 		reqMethod := c.Request.Method
 
-		// 请求路由
+		// Collect request URI.
 		reqUri := c.Request.RequestURI
 
-		// 状态码
+		// Collect response status code.
 		statusCode := c.Writer.Status()
 
-		// 请求IP
+		// Resolve client IP from proxy headers.
 		clientIP := util.GetRealIP(c)
 
 		traceID, exists := c.Get("trace_id")
@@ -53,6 +61,7 @@ func (m middleware) RequestLogger() gin.HandlerFunc {
 
 		ctx := context.WithValue(context.Background(), logger.TraceIDKey, traceID.(string))
 
+		// Emit a structured request log entry.
 		m.logger.Info(ctx,
 			"Request Logs",
 			zap.Int("StatusCode", statusCode),

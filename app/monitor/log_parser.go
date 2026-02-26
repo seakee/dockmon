@@ -19,7 +19,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// LogEntry 日志条目结构体
+// LogEntry represents one normalized log record before persistence.
 type LogEntry struct {
 	Level         string                 `json:"L"`
 	Time          string                 `json:"T"`
@@ -28,10 +28,21 @@ type LogEntry struct {
 	TraceID       string                 `json:"TraceID"`
 	ContainerID   string                 `json:"ContainerID"`
 	ContainerName string                 `json:"ContainerName"`
-	Extra         map[string]interface{} `json:"-"` // 额外信息
+	Extra         map[string]interface{} `json:"-"` // Additional structured fields.
 }
 
-// parseTimeString 尝试解析多种时间格式的字符串并返回 time.Time 类型
+var ansiEscapeCodeRegexp = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+
+const maxLogMessageBytes = 64000
+
+// parseTimeString parses a time string using configured candidate layouts.
+//
+// Parameters:
+//   - timeStr: raw time string extracted from log payload.
+//
+// Returns:
+//   - time.Time: parsed local time.
+//   - error: returned when no configured layout matches.
 func (h *handler) parseTimeString(timeStr string) (time.Time, error) {
 	for _, format := range h.configs.TimeLayout {
 		if parsedTime, err := time.ParseInLocation(format, timeStr, time.Local); err == nil {
@@ -39,17 +50,29 @@ func (h *handler) parseTimeString(timeStr string) (time.Time, error) {
 		}
 	}
 
-	return time.Time{}, fmt.Errorf("无法解析时间字符串: %s", timeStr)
+	return time.Time{}, fmt.Errorf("failed to parse time string: %s", timeStr)
 }
 
-// storeLog 存储日志
+// storeLog normalizes and persists one parsed log entry.
+//
+// Parameters:
+//   - ctx: trace-aware context used for persistence logs.
+//   - entry: parsed log entry to store.
+//
+// Returns:
+//   - None.
+//
+// Behavior:
+//   - Skips empty messages.
+//   - Parses optional time field into sql.NullTime.
+//   - Persists sanitized message and extra JSON fields.
 func (h *handler) storeLog(ctx context.Context, entry *LogEntry) {
 	// when message is empty, skip
 	if entry.Message == "" {
 		return
 	}
 
-	// 序列化日志的额外信息
+	// Serialize additional JSON fields for storage.
 	extraJSON, err := json.Marshal(entry.Extra)
 	if err != nil {
 		h.logger.Error(ctx, "marshal extra error", zap.Error(err))
@@ -58,7 +81,7 @@ func (h *handler) storeLog(ctx context.Context, entry *LogEntry) {
 
 	t := sql.NullTime{Valid: false}
 
-	// 解析日志时间
+	// Parse optional log timestamp.
 	var dateTime time.Time
 	if entry.Time != "" {
 		dateTime, err = h.parseTimeString(entry.Time)
@@ -69,7 +92,7 @@ func (h *handler) storeLog(ctx context.Context, entry *LogEntry) {
 		t = sql.NullTime{Time: dateTime, Valid: true}
 	}
 
-	// 创建日志对象并存储
+	// Build persistence model and store it.
 	log := &collector.Log{
 		Level:         entry.Level,
 		Time:          t,
@@ -86,29 +109,66 @@ func (h *handler) storeLog(ctx context.Context, entry *LogEntry) {
 	}
 }
 
-// cleanString 清理字符串中的不可打印字符
+// cleanString sanitizes log messages before database persistence.
+//
+// Parameters:
+//   - s: raw message string.
+//
+// Returns:
+//   - string: cleaned UTF-8-safe message with control chars removed.
 func cleanString(s string) string {
-	if !utf8.ValidString(s) {
-		v := make([]rune, 0, len(s))
-		for i, r := range s {
-			if r == utf8.RuneError {
-				_, size := utf8.DecodeRuneInString(s[i:])
-				if size == 1 {
-					continue
-				}
-			}
-			if !unicode.IsPrint(r) {
-				// 替换不可打印字符为空格或其他可打印字符
-				r = ' '
-			}
-			v = append(v, r)
-		}
-		return string(v)
+	if s == "" {
+		return s
 	}
-	return s
+
+	cleaned := strings.ToValidUTF8(s, "")
+	cleaned = ansiEscapeCodeRegexp.ReplaceAllString(cleaned, "")
+
+	v := make([]rune, 0, len(cleaned))
+	for _, r := range cleaned {
+		if unicode.IsPrint(r) || unicode.IsSpace(r) {
+			v = append(v, r)
+			continue
+		}
+		// Replace non-printable runes to avoid DB write failures.
+		v = append(v, ' ')
+	}
+
+	cleaned = strings.TrimSpace(string(v))
+	cleaned = truncateUTF8ByBytes(cleaned, maxLogMessageBytes)
+
+	return cleaned
 }
 
-// processUnstructuredLog 处理未结构化的日志
+// truncateUTF8ByBytes truncates a string by byte size without breaking UTF-8.
+//
+// Parameters:
+//   - s: source string.
+//   - maxBytes: byte limit.
+//
+// Returns:
+//   - string: truncated UTF-8-valid string.
+func truncateUTF8ByBytes(s string, maxBytes int) string {
+	if maxBytes <= 0 || len(s) <= maxBytes {
+		return s
+	}
+
+	truncated := s[:maxBytes]
+	for !utf8.ValidString(truncated) && len(truncated) > 0 {
+		truncated = truncated[:len(truncated)-1]
+	}
+
+	return truncated
+}
+
+// processUnstructuredLog flushes buffered unstructured lines for one container.
+//
+// Parameters:
+//   - ctx: trace-aware context for persistence logs.
+//   - containerID: container key of buffered lines.
+//
+// Returns:
+//   - None.
 func (h *handler) processUnstructuredLog(ctx context.Context, containerID string) {
 	h.unstructuredLogs.mu.Lock()
 	defer h.unstructuredLogs.mu.Unlock()
@@ -119,30 +179,44 @@ func (h *handler) processUnstructuredLog(ctx context.Context, containerID string
 	}
 
 	defer func() {
-		uLog.logs = uLog.logs[:0] // 清空日志
+		uLog.logs = uLog.logs[:0] // Reset buffered lines after flush.
 	}()
 
 	if len(uLog.logs) > 0 {
-		// 提取日志中的时间
+		// Use first line time prefix when available.
 		logTime := h.extractTimeIfExists(uLog.logs[0])
 		if logTime == "" {
 			logTime = uLog.logTime
 		}
 
-		// 处理剩余的日志行
+		// Merge multiline logs into one structured entry.
 		entry := h.processRemainingLogLines(ctx, uLog.logs, logTime, containerID, uLog.containerName)
 
-		// 存储日志
+		// Persist merged unstructured log.
 		h.storeLog(ctx, &entry)
 	}
 }
 
-// processLogLine 处理一行日志
+// processLogLine processes one raw log line for a container.
+//
+// Parameters:
+//   - ctx: trace-aware context for logs and persistence.
+//   - logTime: extracted timestamp part.
+//   - logLine: extracted message part.
+//   - containerID: container ID.
+//   - containerName: container name.
+//
+// Returns:
+//   - None.
+//
+// Behavior:
+//   - Tries JSON parsing first.
+//   - Buffers unstructured multiline logs when needed.
 func (h *handler) processLogLine(ctx context.Context, logTime, logLine, containerID, containerName string) {
 	h.unstructuredLogs.mu.RLock()
 	unstructuredLogCount := len(h.unstructuredLogs.entries[containerID].logs)
 
-	// 尝试解析 JSON 格式的日志
+	// Try JSON format first.
 	entry, err := h.tryParseLogToJson(ctx, logLine, containerID, containerName)
 	if err == nil {
 		if unstructuredLogCount > 0 {
@@ -156,7 +230,7 @@ func (h *handler) processLogLine(ctx context.Context, logTime, logLine, containe
 		return
 	}
 
-	// 处理未结构化的日志
+	// Handle unstructured logs and flush buffer when new message starts.
 	if unstructuredLogCount > 0 && h.isUnstructuredLog(logLine) {
 		h.unstructuredLogs.mu.RUnlock()
 		h.processUnstructuredLog(ctx, containerID)
@@ -165,8 +239,7 @@ func (h *handler) processLogLine(ctx context.Context, logTime, logLine, containe
 	}
 
 	h.unstructuredLogs.mu.Lock()
-	// 处理完上一个未结构化的日志后 logs 会被重置
-	// 所以可以将当前日志行的时间赋值给 logTime，当做未结构化的日志的时间
+	// After previous buffer flush, set base timestamp for next unstructured block.
 	if len(h.unstructuredLogs.entries[containerID].logs) == 0 {
 		h.unstructuredLogs.entries[containerID].logTime = logTime
 	}
@@ -176,7 +249,13 @@ func (h *handler) processLogLine(ctx context.Context, logTime, logLine, containe
 	h.unstructuredLogs.mu.Unlock()
 }
 
-// isUnstructuredLog 判断是否为未结构化的日志
+// isUnstructuredLog reports whether a log line starts a new unstructured block.
+//
+// Parameters:
+//   - logLine: raw log message line.
+//
+// Returns:
+//   - bool: true when line matches known unstructured prefixes.
 func (h *handler) isUnstructuredLog(logLine string) bool {
 	if h.isTimePrefix(logLine) {
 		return true
@@ -191,12 +270,22 @@ func (h *handler) isUnstructuredLog(logLine string) bool {
 	return false
 }
 
-// processRemainingLogLines 处理剩余的日志行并返回日志条目
+// processRemainingLogLines merges buffered lines into one LogEntry.
+//
+// Parameters:
+//   - ctx: trace-aware context reserved for future expansion.
+//   - lines: buffered multiline log lines.
+//   - logTime: timestamp associated with this block.
+//   - containerID: source container ID.
+//   - containerName: source container name.
+//
+// Returns:
+//   - LogEntry: normalized unstructured log entry.
 func (h *handler) processRemainingLogLines(ctx context.Context, lines []string, logTime, containerID, containerName string) LogEntry {
-	// 合并所有日志行
+	// Merge all buffered lines to preserve stack traces and multiline output.
 	message := strings.Join(lines, "\n")
 
-	// 确定日志级别
+	// Determine level heuristically from merged message content.
 	level := h.determineLogLevel(ctx, message)
 
 	return LogEntry{
@@ -211,7 +300,17 @@ func (h *handler) processRemainingLogLines(ctx context.Context, lines []string, 
 	}
 }
 
-// tryParseLogToJson 尝试将日志解析 JSON 格式
+// tryParseLogToJson parses one JSON log line into LogEntry.
+//
+// Parameters:
+//   - ctx: trace-aware context reserved for future expansion.
+//   - line: raw log line.
+//   - containerID: source container ID.
+//   - containerName: source container name.
+//
+// Returns:
+//   - LogEntry: parsed entry on success.
+//   - error: JSON decode error.
 func (h *handler) tryParseLogToJson(ctx context.Context, line string, containerID string, containerName string) (LogEntry, error) {
 	var raw map[string]interface{}
 	if err := json.Unmarshal([]byte(line), &raw); err != nil {
@@ -224,19 +323,19 @@ func (h *handler) tryParseLogToJson(ctx context.Context, line string, containerI
 		ContainerName: containerName,
 	}
 
-	// 解析 JSON 字段
+	// Map known fields and preserve unknown fields in Extra.
 	for key, value := range raw {
 		switch key {
 		case "L":
-			entry.Level = value.(string)
+			entry.Level = stringifyJSONValue(value)
 		case "T":
-			entry.Time = value.(string)
+			entry.Time = stringifyJSONValue(value)
 		case "C":
-			entry.Caller = value.(string)
+			entry.Caller = stringifyJSONValue(value)
 		case "M":
-			entry.Message = value.(string)
+			entry.Message = stringifyJSONValue(value)
 		case "TraceID":
-			entry.TraceID = value.(string)
+			entry.TraceID = stringifyJSONValue(value)
 		default:
 			entry.Extra[key] = value
 		}
@@ -245,11 +344,18 @@ func (h *handler) tryParseLogToJson(ctx context.Context, line string, containerI
 	return entry, nil
 }
 
-// determineLogLevel 确定日志级别
+// determineLogLevel infers log level from message content.
+//
+// Parameters:
+//   - ctx: trace-aware context reserved for future expansion.
+//   - message: merged message content.
+//
+// Returns:
+//   - string: normalized level string.
 func (h *handler) determineLogLevel(ctx context.Context, message string) string {
 	lowerMessage := strings.ToLower(message)
 
-	// 日志级别列表
+	// Priority-ordered level keywords.
 	logLevels := []struct {
 		key   string
 		value string
@@ -262,7 +368,7 @@ func (h *handler) determineLogLevel(ctx context.Context, message string) string 
 		{"warn", "WARN"},
 	}
 
-	// 匹配日志级别
+	// Return first matched level keyword.
 	for _, logLevel := range logLevels {
 		if strings.Contains(lowerMessage, logLevel.key) {
 			return logLevel.value
@@ -272,19 +378,60 @@ func (h *handler) determineLogLevel(ctx context.Context, message string) string 
 	return "INFO"
 }
 
-// matchTimePrefix 使用正则表达式匹配时间前缀
-// 支持格式: yyyy/MM/dd, yyyy/MM/dd HH:mm:ss, yyyy/MM/dd HH:mm:ss.SSSSSS
+// stringifyJSONValue converts decoded JSON values to string form.
+//
+// Parameters:
+//   - v: decoded JSON value.
+//
+// Returns:
+//   - string: normalized textual representation.
+func stringifyJSONValue(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+
+	if s, ok := v.(string); ok {
+		return s
+	}
+
+	return fmt.Sprint(v)
+}
+
+// matchTimePrefix matches supported date-time prefixes at line start.
+//
+// Parameters:
+//   - line: raw log line.
+//
+// Returns:
+//   - string: matched prefix or empty string.
+//
+// Supported formats:
+//   - yyyy/MM/dd
+//   - yyyy/MM/dd HH:mm:ss
+//   - yyyy/MM/dd HH:mm:ss.SSSSSS
 func (h *handler) matchTimePrefix(line string) string {
 	re := regexp.MustCompile(`^\d{4}/\d{2}/\d{2}( \d{2}:\d{2}:\d{2}(\.\d{6})?)?`)
 	return re.FindString(line)
 }
 
-// isTimePrefix 检查行是否以日期时间前缀开头
+// isTimePrefix reports whether line starts with a supported time prefix.
+//
+// Parameters:
+//   - line: raw log line.
+//
+// Returns:
+//   - bool: true when line starts with recognized time format.
 func (h *handler) isTimePrefix(line string) bool {
 	return h.matchTimePrefix(line) != ""
 }
 
-// extractTimeIfExists 提取日志中的时间前缀（如果存在）
+// extractTimeIfExists extracts line-leading time prefix when available.
+//
+// Parameters:
+//   - line: raw log line.
+//
+// Returns:
+//   - string: extracted time prefix or empty string.
 func (h *handler) extractTimeIfExists(line string) string {
 	return h.matchTimePrefix(line)
 }

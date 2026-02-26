@@ -1,6 +1,6 @@
 module github.com/seakee/dockmon
 
-go 1.24
+go 1.24.5
 
 require (
 	github.com/docker/docker v28.1.1+incompatible
@@ -12,12 +12,12 @@ require (
 	github.com/sk-pkg/i18n v1.2.0
 	github.com/sk-pkg/logger v1.3.3
 	github.com/sk-pkg/monitor v0.1.0
-	github.com/sk-pkg/mysql v1.1.3
+	github.com/sk-pkg/mysql v1.1.4
 	github.com/sk-pkg/redis v1.1.1
 	github.com/sk-pkg/util v1.0.2
 	go.uber.org/zap v1.27.0
 	gorm.io/datatypes v1.2.5
-	gorm.io/gorm v1.26.0
+	gorm.io/gorm v1.30.0
 )
 
 require (
@@ -39,7 +39,7 @@ require (
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.20.0 // indirect
-	github.com/go-sql-driver/mysql v1.8.1 // indirect
+	github.com/go-sql-driver/mysql v1.9.3 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/gomodule/redigo v1.9.2 // indirect
@@ -74,9 +74,9 @@ require (
 	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
-	golang.org/x/text v0.23.0 // indirect
+	golang.org/x/text v0.27.0 // indirect
 	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	gorm.io/driver/mysql v1.5.7 // indirect
+	gorm.io/driver/mysql v1.6.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 )

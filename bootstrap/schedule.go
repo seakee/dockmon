@@ -11,6 +11,17 @@ import (
 	"github.com/seakee/dockmon/app/pkg/schedule"
 )
 
+// startSchedule creates and starts the internal scheduler.
+//
+// Parameters:
+//   - ctx: trace-aware context used for startup logs.
+//
+// Returns:
+//   - None.
+//
+// Example:
+//
+//	go app.startSchedule(ctx)
 func (a *App) startSchedule(ctx context.Context) {
 	s := schedule.New(a.Logger, a.Redis["dockmon"], a.TraceID)
 

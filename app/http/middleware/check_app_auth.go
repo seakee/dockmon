@@ -11,6 +11,14 @@ import (
 	apiJWT "github.com/seakee/dockmon/app/pkg/jwt"
 )
 
+// CheckAppAuth returns middleware that validates Authorization tokens.
+//
+// Returns:
+//   - gin.HandlerFunc: middleware that aborts unauthorized requests.
+//
+// Behavior:
+//   - Parses and verifies JWT from the Authorization header.
+//   - Writes localized error response and aborts request on failure.
 func (m middleware) CheckAppAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		errCode, err := checkByToken(c)
@@ -24,7 +32,18 @@ func (m middleware) CheckAppAuth() gin.HandlerFunc {
 	}
 }
 
-// checkByToken 返回通过token验证的结果
+// checkByToken validates a JWT token and injects app metadata into Gin context.
+//
+// Parameters:
+//   - c: current Gin context carrying HTTP headers.
+//
+// Returns:
+//   - errCode: application-level error code.
+//   - err: parsing or validation error, nil on success.
+//
+// Example:
+//
+//	errCode, err := checkByToken(c)
 func checkByToken(c *gin.Context) (errCode int, err error) {
 	errCode = e.InvalidParams
 
@@ -36,6 +55,7 @@ func checkByToken(c *gin.Context) (errCode int, err error) {
 
 		serverClaims, err = apiJWT.ParseAppAuth(token)
 		if err != nil {
+			// Convert JWT library errors into project-specific error codes.
 			switch err {
 			case jwt.ErrTokenExpired:
 				errCode = e.ServerAuthorizationExpired
@@ -43,6 +63,7 @@ func checkByToken(c *gin.Context) (errCode int, err error) {
 				errCode = e.ServerUnauthorized
 			}
 		} else {
+			// Cache app identity in context for downstream handlers.
 			c.Set("app_id", serverClaims.AppID)
 			c.Set("app_name", serverClaims.AppName)
 		}

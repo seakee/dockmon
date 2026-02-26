@@ -2,6 +2,7 @@
 // Use of this source code is governed by a MIT style
 // license that can be found in the LICENSE file.
 
+// Package trace provides concurrent-safe trace ID generation utilities.
 package trace
 
 import (
@@ -16,24 +17,31 @@ import (
 )
 
 const (
-	initIndex = 10000000 // 初始序列号
-	indexBase = 36       // 序列号的基数
+	initIndex = 10000000 // Initial sequence value for each prefix epoch.
+	indexBase = 36       // Base used to encode sequence and timestamp.
 )
 
 var (
-	hostnameOnce sync.Once // 仅执行一次获取主机名的操作
-	hostname     string    // 缓存的主机名
+	hostnameOnce sync.Once // Ensures hostname lookup is executed once.
+	hostname     string    // Cached hostname reused by all trace IDs.
 )
 
-// ID 是用于生成唯一标识符的结构体。
+// ID generates unique trace IDs with a host+timestamp prefix.
 type ID struct {
-	index  uint64     // 序列号，通过原子操作访问
-	prefix string     // 包含时间戳和主机名的前缀
-	mu     sync.Mutex // 互斥锁，确保更新前缀时的线程安全
+	index  uint64     // Sequence number, accessed atomically.
+	prefix string     // Prefix containing hostname and timestamp.
+	mu     sync.Mutex // Protects prefix refresh and reset operations.
 }
 
-// NewTraceID 创建并返回一个新的 ID 实例，使用主机名和时间戳。
-// 它在初始化时一次性地检索主机名并缓存它。
+// NewTraceID creates a trace ID generator initialized with host prefix data.
+//
+// Returns:
+//   - *ID: initialized trace ID generator.
+//
+// Example:
+//
+//	tid := trace.NewTraceID()
+//	id := tid.New()
 func NewTraceID() *ID {
 	t := &ID{
 		index: initIndex,
@@ -42,8 +50,14 @@ func NewTraceID() *ID {
 	return t
 }
 
-// updatePrefix 用当前时间戳和缓存的主机名组合前缀。
-// 调用此方法时需要外部同步。
+// updatePrefix refreshes the prefix using current timestamp and cached hostname.
+//
+// Returns:
+//   - None.
+//
+// Behavior:
+//   - Fetches hostname once and falls back to "unknown" on failure.
+//   - Resets sequence counter to initial value.
 func (t *ID) updatePrefix() {
 	var err error
 
@@ -53,8 +67,8 @@ func (t *ID) updatePrefix() {
 	hostnameOnce.Do(func() {
 		hostname, err = os.Hostname()
 		if err != nil {
-			log.Printf("获取主机名失败: %v", err)
-			// 如果获取主机名失败，使用默认值
+			log.Printf("failed to get hostname: %v", err)
+			// Use a stable fallback to keep ID generation available.
 			hostname = "unknown"
 		}
 	})
@@ -63,12 +77,15 @@ func (t *ID) updatePrefix() {
 	t.index = initIndex
 }
 
-// New 生成并返回一个新的唯一标识符 ID。
+// New returns a new unique trace ID string.
+//
+// Returns:
+//   - string: unique trace ID composed of prefix and base36 sequence.
 func (t *ID) New() string {
-	// 原子递增序列号
+	// Atomically increment the sequence to avoid contention.
 	newIndex := atomic.AddUint64(&t.index, 1)
 
-	// 如果序列号溢出，加锁后再次检查以更新前缀并重置序列号
+	// On overflow, refresh prefix and reset sequence once.
 	if newIndex == 0 {
 		t.mu.Lock()
 		defer t.mu.Unlock()
@@ -77,7 +94,7 @@ func (t *ID) New() string {
 		}
 	}
 
-	// 将序列号转换为基数为 36 的字符串
+	// Encode sequence with compact base36 representation.
 	id := strconv.FormatUint(newIndex, indexBase)
 
 	return util.SpliceStr(t.prefix, id)

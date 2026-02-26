@@ -10,6 +10,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Cors returns middleware that applies CORS headers for browser clients.
+//
+// Returns:
+//   - gin.HandlerFunc: middleware that handles CORS and preflight requests.
+//
+// Behavior:
+//   - Mirrors incoming Origin.
+//   - Terminates OPTIONS preflight with HTTP 204.
 func (m middleware) Cors() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		method := c.Request.Method

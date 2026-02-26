@@ -13,9 +13,20 @@ import (
 	"go.uber.org/zap"
 )
 
+// startCollector initializes and starts the Docker log collector subsystem.
+//
+// Parameters:
+//   - ctx: trace-aware context used for lifecycle logs and downstream calls.
+//
+// Returns:
+//   - None.
+//
+// Behavior:
+//   - Optionally appends the current app container to monitored names when
+//     running inside Docker and monitor-self is enabled.
+//   - Starts collector loop immediately after dependency construction.
 func (a *App) startCollector(ctx context.Context) {
-	// 检查日志收集器如果运行在 docker 容器里面,并且配置文件开启了收集自身日志
-	// 则将容器名称添加到要监控的容器名称列表中
+	// Add current container name when self-monitor mode is enabled.
 	if a.Config.Collector.MonitorSelf && a.Config.System.Name != "" && a.checkIfRunningInContainer() {
 		a.Config.Collector.ContainerName = append(a.Config.Collector.ContainerName, a.Config.System.Name)
 	}
@@ -42,19 +53,25 @@ func (a *App) startCollector(ctx context.Context) {
 	a.Logger.Info(ctx, "Collector loaded successfully")
 }
 
-// checkIfRunningInContainer 检查程序是否在容器中运行
+// checkIfRunningInContainer returns whether the current process runs in Docker.
+//
+// Returns:
+//   - bool: true when container runtime fingerprints are detected.
+//
+// Behavior:
+//   - Checks environment marker, /.dockerenv, and /proc/1/cgroup.
 func (a *App) checkIfRunningInContainer() bool {
-	// 检查环境变量
+	// Check the standard container runtime environment variable.
 	if _, exists := os.LookupEnv("container"); exists {
 		return true
 	}
 
-	// 检查 /.dockerenv 文件
+	// Check container-specific marker file.
 	if _, err := os.Stat("/.dockerenv"); err == nil {
 		return true
 	}
 
-	// 检查 /proc/1/cgroup 文件
+	// Check cgroup metadata for docker hints.
 	data, err := os.ReadFile("/proc/1/cgroup")
 	if err != nil {
 		return false

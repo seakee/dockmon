@@ -2,6 +2,8 @@
 // Use of this source code is governed by a MIT style
 // license that can be found in the LICENSE file.
 
+// Package main wires configuration loading, dependency bootstrap, and process
+// lifecycle waiting for the dockmon service.
 package main
 
 import (
@@ -14,7 +16,13 @@ import (
 	"github.com/seakee/dockmon/bootstrap"
 )
 
+// main initializes runtime settings, boots the application, and blocks until
+// an OS termination signal arrives.
+//
+// Returns:
+//   - None.
 func main() {
+	// Use all available CPUs because the service starts concurrent workers.
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	config, err := app.LoadConfig()
@@ -33,6 +41,15 @@ func main() {
 	log.Println("Signal received, app closed.", s)
 }
 
+// waitForSignal blocks until an interrupt or kill signal is received.
+//
+// Returns:
+//   - os.Signal: the signal that terminates the process.
+//
+// Example:
+//
+//	sig := waitForSignal()
+//	log.Println("shutdown:", sig)
 func waitForSignal() os.Signal {
 	signalChan := make(chan os.Signal, 1)
 	defer close(signalChan)

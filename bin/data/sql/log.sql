@@ -1,11 +1,11 @@
 CREATE TABLE `log`
 (
     `id`             int unsigned NOT NULL AUTO_INCREMENT,
-    `container_name` varchar(100)                                                  DEFAULT NULL,
-    `trace_id`       varchar(100)                                                  DEFAULT NULL,
-    `level`          varchar(10)                                                   DEFAULT NULL,
-    `message`        text,
-    `caller`         varchar(200)                                                  DEFAULT NULL,
+    `container_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL,
+    `trace_id`       varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL,
+    `level`          varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci  DEFAULT NULL,
+    `message`        longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,
+    `caller`         varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL,
     `extra`          json                                                          DEFAULT NULL,
     `time`           timestamp    NULL                                             DEFAULT NULL,
     `container_id`   varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL,
