@@ -6,39 +6,27 @@ package monitor
 
 import (
 	"context"
-	"time"
+	"reflect"
+	"testing"
 
+	collectorModel "github.com/seakee/dockmon/app/model/collector"
 	"github.com/seakee/dockmon/app/pkg/trace"
-	"github.com/seakee/dockmon/app/service/collector"
 	"github.com/sk-pkg/logger"
-	"github.com/sk-pkg/mysql"
-	"github.com/sk-pkg/redis"
 )
 
-func newTestCollector() (*handler, error) {
-	manager := redis.New(
-		redis.WithPrefix("dockmon"),
-		redis.WithAddress("redis_host"),
-		redis.WithIdleTimeout(30),
-		redis.WithMaxActive(100),
-		redis.WithMaxIdle(30),
-		redis.WithDB(0),
-	)
-	db, _ := mysql.New(mysql.WithConfigs(
-		mysql.Config{
-			User:     "db_username",
-			Password: "db_password",
-			Host:     "db_host",
-			DBName:   "d_name",
-		}),
-		mysql.WithConnMaxLifetime(3*time.Hour),
-		mysql.WithMaxIdleConn(10),
-		mysql.WithMaxOpenConn(50),
-	)
-	l, _ := logger.New()
+type mockLogService struct{}
 
-	ctx := context.Background()
-	dcm, err := NewDockerClientManager(ctx, l)
+func (mockLogService) Store(ctx context.Context, log *collectorModel.Log) (int, error) {
+	return 1, nil
+}
+
+// newTestCollector creates a handler instance for unit tests.
+//
+// Returns:
+//   - *handler: initialized monitor handler for tests.
+//   - error: initialization error.
+func newTestCollector() (*handler, error) {
+	l, err := logger.New()
 	if err != nil {
 		return nil, err
 	}
@@ -73,9 +61,9 @@ func newTestCollector() (*handler, error) {
 
 	return &handler{
 		logger:           l,
-		redis:            manager,
-		dockerManager:    dcm,
-		service:          collector.NewLogService(db, manager, l),
+		redis:            nil,
+		dockerManager:    nil,
+		service:          mockLogService{},
 		activeContainers: &activeContainers{entries: make(map[string]bool)},
 		unstructuredLogs: &unstructuredLogs{entries: make(map[string]*unstructuredLogBuffer)},
 		traceID:          traceID,
@@ -85,4 +73,20 @@ func newTestCollector() (*handler, error) {
 			UnstructuredLogLineFlags: UnstructuredLogLineFlags,
 		},
 	}, nil
+}
+
+// TestRemoveFromSlice verifies that removeFromSlice removes all target values.
+//
+// Parameters:
+//   - t: testing context.
+//
+// Returns:
+//   - None.
+func TestRemoveFromSlice(t *testing.T) {
+	input := []string{"a", "b", "a", "c"}
+	got := removeFromSlice(input, "a")
+	want := []string{"b", "c"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("removeFromSlice() = %v, want %v", got, want)
+	}
 }
