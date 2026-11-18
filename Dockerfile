@@ -7,10 +7,12 @@ LABEL maintainer="Seakee <seakee23@gmail.com>"
 # Set the working directory for the build
 WORKDIR /build
 
+ARG GOPROXY=https://goproxy.cn,https://mirrors.aliyun.com/goproxy/,direct
+ENV GOPROXY=${GOPROXY}
+
 # Copy the go modules files and download dependencies
 COPY go.mod go.sum ./
 RUN go mod download
-
 # Copy the project files
 COPY . .
 
@@ -19,22 +21,17 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /build/do
 
 # Use a smaller base image for the runtime stage
 FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-
-# Set the working directory for runtime
-WORKDIR /
-
-# Set the build-time argument for TZ
+ARG ALPINE_MIRROR=mirrors.tuna.tsinghua.edu.cn
 ARG TZ=Asia/Shanghai
-
-# Set the environment variable for TZ
 ENV TZ=$TZ
 
-# Install tzdata for timezone support
-RUN apk add --no-cache tzdata && \
+RUN sed -i "s|dl-cdn.alpinelinux.org|${ALPINE_MIRROR}|g" /etc/apk/repositories && \
+    apk --no-cache add ca-certificates tzdata && \
     cp /usr/share/zoneinfo/$TZ /etc/localtime && \
     echo $TZ > /etc/timezone
 
+# Set the working directory for runtime
+WORKDIR /
 # Copy the compiled binary file into the /bin directory of the runtime image
 COPY --from=builder /build/dockmon ./bin
 
